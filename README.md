@@ -71,12 +71,12 @@ python test_system.py
 
 ### List Available Patient Scenarios
 ```bash
-python main.py list-scenarios
+python3 cli.py list-scenarios
 ```
 
 ### Interactive Mode (Human as Patient)
 ```bash
-python cli.py interactive --patient-id HF_CONV_001 --weeks 8
+python3 cli.py interactive --patient-id HF_CONV_001 --weeks 8
 ```
 
 In interactive mode:
@@ -87,7 +87,7 @@ In interactive mode:
 
 ### Automated Mode (Agent-to-Agent)
 ```bash
-python cli.py automated --patient-id HF_CONV_001 --weeks 8 \
+python3 cli.py automated --patient-id HF_CONV_001 --weeks 8 \
   --adherence-pattern consistently_high \
   --symptom-pattern steady_improvement \
   --endpoint complete_success

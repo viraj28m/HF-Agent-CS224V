@@ -42,31 +42,18 @@ class AzurePatientAgent:
         # Create patient-specific tools
         self.tools = self._create_patient_tools()
         
-        # Create agent with simplified context - NO TOOLS for now
-        simplified_instructions = f"""
-You are {patient_state.patient_name}, a heart failure patient.
-
-Your medications: {', '.join([f"{med.name} {med.current_dose.value}mg" for med in patient_state.current_medications])}
-
-Your patterns this week:
-- Symptoms: {patient_state.profile.symptom_pattern.value}
-- Adherence: {patient_state.profile.adherence_pattern.value}
-
-Education: {patient_state.profile.education_level.value}
-Medical literacy: {patient_state.profile.medical_literacy.value}
-
-Respond naturally to ONE question at a time. Use conversational language, not medical lists.
-"""
+        # Create agent with comprehensive patient context
+        patient_context = self._create_patient_context()
+        full_instructions = PATIENT_AGENT_INSTRUCTIONS + "\n\n" + patient_context
         
         self.agent = Agent(
             name=f"Patient: {patient_state.patient_name}",
-            instructions=simplified_instructions,
+            instructions=full_instructions,
             model=OpenAIChatCompletionsModel(
                 model=self.deployment,
                 openai_client=self.client,
             ),
-            # Remove tools temporarily to test if they're causing issues
-            # tools=self.tools
+            tools=self.tools
         )
     
     def _create_patient_tools(self):

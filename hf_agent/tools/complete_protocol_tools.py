@@ -1,14 +1,28 @@
-"""Complete protocol tools using the comprehensive medication database."""
+"""Complete protocol tools using the comprehensive medication database.
+
+Extended with logging so that tool calls, parameters, and outputs are visible
+when the HF agent invokes them. This is helpful for debugging titration
+behavior and ensuring that the LLM is actually using these tools.
+"""
 
 from typing import Dict, List, Optional, Any, Union
+import logging
+
 from pydantic import BaseModel, ConfigDict
 from agents import function_tool
 
 from ..data.complete_protocols import (
-    ALL_MEDICATIONS, MEDICATION_CLASSES, VITAL_SIGN_PARAMETERS,
-    LAB_MONITORING, GENERAL_HOLD_CRITERIA, PROGRAM_ENDPOINTS,
-    TITRATION_SEQUENCES
+    ALL_MEDICATIONS,
+    MEDICATION_CLASSES,
+    VITAL_SIGN_PARAMETERS,
+    LAB_MONITORING,
+    GENERAL_HOLD_CRITERIA,
+    PROGRAM_ENDPOINTS,
+    TITRATION_SEQUENCES,
 )
+
+
+logger = logging.getLogger("hf_agent.tools.complete_protocol_tools")
 
 
 class PatientVitals(BaseModel):
@@ -43,8 +57,7 @@ class PatientMedication(BaseModel):
     weeks_on_current_dose: int = 0
 
 
-@function_tool
-def get_all_medication_info(medication_name: str) -> Dict[str, Any]:
+def _get_all_medication_info_impl(medication_name: str) -> Dict[str, Any]:
     """
     Get complete information for any heart failure medication including dosing, contraindications, and hold criteria.
     
@@ -54,13 +67,17 @@ def get_all_medication_info(medication_name: str) -> Dict[str, Any]:
     Returns:
         Complete medication protocol information or error if not found
     """
+    logger.info("Tool get_all_medication_info called with medication_name=%s", medication_name)
+
     med_key = medication_name.lower().replace(" ", "_").replace("/", "_").replace("-", "_")
     
     if med_key not in ALL_MEDICATIONS:
-        return {
+        result = {
             "error": f"Medication '{medication_name}' not found",
             "available_medications": list(ALL_MEDICATIONS.keys())
         }
+        logger.info("Tool get_all_medication_info result: %s", result)
+        return result
     
     med_info = ALL_MEDICATIONS[med_key].copy()
     
@@ -102,8 +119,17 @@ def get_all_medication_info(medication_name: str) -> Dict[str, Any]:
     if "starting_dose_low" in med_info:
         result["starting_dose_low"] = med_info["starting_dose_low"]
         result["starting_dose_high"] = med_info["starting_dose_high"]
-    
+
+    logger.info("Tool get_all_medication_info result: %s", result)
     return result
+
+
+@function_tool
+def get_all_medication_info(medication_name: str) -> Dict[str, Any]:
+    """
+    Tool-wrapped version of get_all_medication_info for the Agents SDK.
+    """
+    return _get_all_medication_info_impl(medication_name)
 
 
 @function_tool
@@ -117,11 +143,15 @@ def get_medications_by_class(medication_class: str) -> Dict[str, Any]:
     Returns:
         Dictionary of medications in the class with basic info
     """
+    logger.info("Tool get_medications_by_class called with medication_class=%s", medication_class)
+
     if medication_class not in MEDICATION_CLASSES:
-        return {
+        result = {
             "error": f"Medication class '{medication_class}' not found",
             "available_classes": list(MEDICATION_CLASSES.keys())
         }
+        logger.info("Tool get_medications_by_class result: %s", result)
+        return result
     
     medications = MEDICATION_CLASSES[medication_class]
     result = {
@@ -137,12 +167,12 @@ def get_medications_by_class(medication_class: str) -> Dict[str, Any]:
                 "maximum_dose": med_info["maximum_dose"],
                 "requires_titration": "incremental_doses" in med_info
             }
-    
+
+    logger.info("Tool get_medications_by_class result: %s", result)
     return result
 
 
-@function_tool
-def get_next_titration_dose(medication_name: str, current_dose: float) -> Dict[str, Any]:
+def _get_next_titration_dose_impl(medication_name: str, current_dose: float) -> Dict[str, Any]:
     """
     Get the next appropriate dose for medication titration based on protocol.
     
@@ -153,18 +183,28 @@ def get_next_titration_dose(medication_name: str, current_dose: float) -> Dict[s
     Returns:
         Next dose information or indication if at maximum
     """
+    logger.info(
+        "Tool get_next_titration_dose called with medication_name=%s, current_dose=%s",
+        medication_name,
+        current_dose,
+    )
+
     med_key = medication_name.lower().replace(" ", "_").replace("/", "_").replace("-", "_")
     
     if med_key not in ALL_MEDICATIONS:
-        return {"error": f"Medication '{medication_name}' not found"}
+        result = {"error": f"Medication '{medication_name}' not found"}
+        logger.info("Tool get_next_titration_dose result: %s", result)
+        return result
     
     med_info = ALL_MEDICATIONS[med_key]
     
     if "incremental_doses" not in med_info:
-        return {
+        result = {
             "requires_titration": False,
             "message": f"{medication_name} does not require titration - use standard dose"
         }
+        logger.info("Tool get_next_titration_dose result: %s", result)
+        return result
     
     incremental_doses = med_info["incremental_doses"]
     
@@ -180,28 +220,42 @@ def get_next_titration_dose(medication_name: str, current_dose: float) -> Dict[s
             break
     
     if current_idx is None:
-        return {
+        result = {
             "error": f"Current dose {current_dose} not found in protocol",
             "valid_doses": incremental_doses
         }
+        logger.info("Tool get_next_titration_dose result: %s", result)
+        return result
     
     if current_idx >= len(incremental_doses) - 1:
-        return {
+        result = {
             "at_maximum": True,
             "current_dose": current_dose,
             "maximum_dose": med_info["maximum_dose"],
             "message": "Patient is at maximum protocol dose"
         }
+        logger.info("Tool get_next_titration_dose result: %s", result)
+        return result
     
     next_dose = incremental_doses[current_idx + 1]
     
-    return {
+    result = {
         "current_dose": current_dose,
         "next_dose": next_dose,
         "maximum_dose": med_info["maximum_dose"],
         "dose_unit": med_info["starting_dose"]["unit"],
         "frequency": med_info["starting_dose"]["frequency"]
     }
+    logger.info("Tool get_next_titration_dose result: %s", result)
+    return result
+
+
+@function_tool
+def get_next_titration_dose(medication_name: str, current_dose: float) -> Dict[str, Any]:
+    """
+    Tool-wrapped version of get_next_titration_dose for the Agents SDK.
+    """
+    return _get_next_titration_dose_impl(medication_name, current_dose)
 
 
 @function_tool
@@ -223,10 +277,21 @@ def check_medication_hold_criteria(
     Returns:
         Hold recommendation with specific reasons
     """
+    logger.info(
+        "Tool check_medication_hold_criteria called with medication_name=%s, "
+        "patient_vitals=%s, patient_labs=%s, baseline_creatinine=%s",
+        medication_name,
+        patient_vitals,
+        patient_labs,
+        baseline_creatinine,
+    )
+
     med_key = medication_name.lower().replace(" ", "_").replace("/", "_").replace("-", "_")
     
     if med_key not in ALL_MEDICATIONS:
-        return {"error": f"Medication '{medication_name}' not found"}
+        result = {"error": f"Medication '{medication_name}' not found"}
+        logger.info("Tool check_medication_hold_criteria result: %s", result)
+        return result
     
     med_info = ALL_MEDICATIONS[med_key]
     hold_criteria = med_info["hold_criteria"]
@@ -285,17 +350,18 @@ def check_medication_hold_criteria(
                       "egfr_low", "sbp_low", "hr_low", "hr_very_low"] and value is True:
             special_holds.append(f"Monitor for {key.replace('_', ' ')}")
     
-    return {
+    result = {
         "medication": medication_name,
         "should_hold": len(hold_reasons) > 0,
         "hold_reasons": hold_reasons,
         "special_monitoring": special_holds,
         "hold_criteria_reference": hold_criteria
     }
+    logger.info("Tool check_medication_hold_criteria result: %s", result)
+    return result
 
 
-@function_tool
-def get_lab_monitoring_requirements(medications: List[str]) -> Dict[str, Any]:
+def _get_lab_monitoring_requirements_impl(medications: List[str]) -> Dict[str, Any]:
     """
     Get laboratory monitoring requirements for current medications.
     
@@ -305,6 +371,8 @@ def get_lab_monitoring_requirements(medications: List[str]) -> Dict[str, Any]:
     Returns:
         Monitoring schedule and required labs
     """
+    logger.info("Tool get_lab_monitoring_requirements called with medications=%s", medications)
+
     monitoring_needs = {
         "immediate_labs_needed": False,
         "timeline": "routine",
@@ -351,7 +419,16 @@ def get_lab_monitoring_requirements(medications: List[str]) -> Dict[str, Any]:
     
     monitoring_needs["required_labs"] = list(monitoring_needs["required_labs"])
     
+    logger.info("Tool get_lab_monitoring_requirements result: %s", monitoring_needs)
     return monitoring_needs
+
+
+@function_tool
+def get_lab_monitoring_requirements(medications: List[str]) -> Dict[str, Any]:
+    """
+    Tool-wrapped version of get_lab_monitoring_requirements for the Agents SDK.
+    """
+    return _get_lab_monitoring_requirements_impl(medications)
 
 
 @function_tool
@@ -362,6 +439,8 @@ def get_vital_sign_parameters() -> Dict[str, Any]:
     Returns:
         Blood pressure and heart rate parameters for titration safety
     """
+    logger.info("Tool get_vital_sign_parameters called")
+    logger.info("Tool get_vital_sign_parameters result: %s", VITAL_SIGN_PARAMETERS)
     return VITAL_SIGN_PARAMETERS
 
 
@@ -373,6 +452,8 @@ def get_general_hold_criteria() -> Dict[str, Any]:
     Returns:
         General laboratory and vital sign thresholds for medication holds
     """
+    logger.info("Tool get_general_hold_criteria called")
+    logger.info("Tool get_general_hold_criteria result: %s", GENERAL_HOLD_CRITERIA)
     return GENERAL_HOLD_CRITERIA
 
 
@@ -384,6 +465,8 @@ def get_program_endpoints() -> Dict[str, str]:
     Returns:
         Dictionary of endpoint names and their definitions
     """
+    logger.info("Tool get_program_endpoints called")
+    logger.info("Tool get_program_endpoints result: %s", PROGRAM_ENDPOINTS)
     return PROGRAM_ENDPOINTS
 
 
@@ -395,4 +478,6 @@ def get_titration_strategies() -> Dict[str, Any]:
     Returns:
         Available titration strategies with descriptions and examples
     """
+    logger.info("Tool get_titration_strategies called")
+    logger.info("Tool get_titration_strategies result: %s", TITRATION_SEQUENCES)
     return TITRATION_SEQUENCES

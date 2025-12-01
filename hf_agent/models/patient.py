@@ -119,6 +119,7 @@ class PatientState(BaseModel):
     profile: PatientProfile
     current_medications: List[CurrentMedication]
     current_week: int
+    total_weeks: int = 8
     weekly_data: List[WeeklyData] = Field(default_factory=list)
     endpoint: Endpoint = Endpoint.IN_PROGRESS
     

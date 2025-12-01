@@ -58,8 +58,12 @@ def generate_realistic_vitals(
     )
 
 
-def generate_symptoms(pattern: SymptomPattern, week: int) -> List[str]:
-    """Generate symptoms based on pattern."""
+def generate_symptoms(
+    pattern: SymptomPattern,
+    week: int,
+    total_weeks: int
+) -> List[str]:
+    """Generate symptoms based on pattern and total program duration."""
     base_symptoms = [
         "mild shortness of breath with exertion",
         "some fatigue during daily activities",
@@ -79,18 +83,22 @@ def generate_symptoms(pattern: SymptomPattern, week: int) -> List[str]:
         "more tired than before"
     ]
     
+    # Define generic phases based on total weeks
+    early_phase_end = max(1, total_weeks // 3)
+    mid_phase_end = max(early_phase_end + 1, (2 * total_weeks) // 3)
+    
     if pattern == SymptomPattern.STEADY_IMPROVEMENT:
-        if week <= 2:
+        if week <= early_phase_end:
             return base_symptoms
-        elif week <= 6:
+        elif week <= mid_phase_end:
             return improving_symptoms[:1] + base_symptoms[1:]
         else:
             return improving_symptoms
     
     elif pattern == SymptomPattern.PROGRESSIVE_WORSENING:
-        if week <= 2:
+        if week <= early_phase_end:
             return base_symptoms
-        elif week <= 4:
+        elif week <= mid_phase_end:
             return base_symptoms + worsening_symptoms[:1]
         else:
             return worsening_symptoms
@@ -102,13 +110,18 @@ def generate_symptoms(pattern: SymptomPattern, week: int) -> List[str]:
             return base_symptoms + worsening_symptoms[:1]
     
     elif pattern == SymptomPattern.PLATEAU:
-        if week <= 4:
+        # Initial improvement phase for roughly half of the program,
+        # then return to a stable baseline (plateau).
+        improvement_phase_end = max(1, total_weeks // 2)
+        if week <= improvement_phase_end:
             return improving_symptoms[:2]
         else:
             return base_symptoms  # Stopped improving
     
     else:  # ACUTE_ESCALATION_TO_ED
-        if week <= 6:
+        # Escalation occurs in the final quarter of the program.
+        escalation_start = max(1, (3 * total_weeks) // 4)
+        if week <= escalation_start:
             return base_symptoms
         else:
             return [
@@ -120,8 +133,13 @@ def generate_symptoms(pattern: SymptomPattern, week: int) -> List[str]:
     return base_symptoms
 
 
-def generate_side_effects(pattern: SideEffectPattern, medications: List[str], week: int) -> List[str]:
-    """Generate side effects based on pattern and current medications."""
+def generate_side_effects(
+    pattern: SideEffectPattern,
+    medications: List[str],
+    week: int,
+    total_weeks: int
+) -> List[str]:
+    """Generate side effects based on pattern, current medications, and program duration."""
     if pattern == SideEffectPattern.NONE:
         return []
     
@@ -151,10 +169,18 @@ def generate_side_effects(pattern: SideEffectPattern, medications: List[str], we
     if pattern == SideEffectPattern.MILD_TOLERABLE:
         return random.sample(possible_effects, min(1, len(possible_effects)))
     elif pattern == SideEffectPattern.SIDE_EFFECT_ESCALATION:
-        num_effects = min(week // 2 + 1, len(possible_effects))
+        # Gradual escalation over the course of the program
+        if not possible_effects:
+            return []
+        # Scale number of effects roughly linearly with program progress
+        progress_ratio = min(1.0, max(0.0, week / max(1, total_weeks)))
+        max_effects = len(possible_effects)
+        num_effects = max(1, int(progress_ratio * max_effects))
         return random.sample(possible_effects, num_effects)
     elif pattern == SideEffectPattern.EARLY_INTOLERANCE:
-        if week <= 3:
+        # More side effects early in the program, then mostly resolve
+        early_phase_end = max(1, total_weeks // 3)
+        if week <= early_phase_end:
             return random.sample(possible_effects, min(2, len(possible_effects)))
         else:
             return possible_effects[:1]  # Resolved mostly
@@ -162,18 +188,27 @@ def generate_side_effects(pattern: SideEffectPattern, medications: List[str], we
     return []
 
 
-def calculate_adherence(pattern: AdherencePattern, week: int, baseline: float = 0.95) -> float:
-    """Calculate adherence rate based on pattern."""
+def calculate_adherence(
+    pattern: AdherencePattern,
+    week: int,
+    total_weeks: int,
+    baseline: float = 0.95
+) -> float:
+    """Calculate adherence rate based on pattern and total program duration."""
     if pattern == AdherencePattern.CONSISTENTLY_HIGH:
         return max(0.9, baseline - random.uniform(0, 0.05))
     
     elif pattern == AdherencePattern.DECLINING:
-        decline = (week - 1) * 0.1
+        # Decline more smoothly over the full duration of the program
+        progress_ratio = max(0.0, min(1.0, (week - 1) / max(1, total_weeks - 1)))
+        decline = progress_ratio * 0.6  # Up to 60% absolute drop from baseline
         return max(0.3, baseline - decline)
     
     elif pattern == AdherencePattern.IMPROVING:
         if baseline < 0.8:  # Started low
-            improvement = min(week * 0.1, 0.3)
+            # Gradual improvement over the program, capped at +0.3
+            progress_ratio = max(0.0, min(1.0, week / max(1, total_weeks)))
+            improvement = min(progress_ratio * 0.3, 0.3)
             return min(0.95, baseline + improvement)
         return baseline
     
@@ -184,7 +219,9 @@ def calculate_adherence(pattern: AdherencePattern, week: int, baseline: float = 
             return baseline
     
     else:  # SINGLE_DROP_THEN_STABLE
-        if week == 3:  # Single bad week
+        # Single bad week approximately one-third into the program
+        drop_week = max(2, total_weeks // 3)
+        if week == drop_week:
             return max(0.4, baseline - 0.4)
         return baseline
     
@@ -197,20 +234,18 @@ You are simulating a heart failure patient participating in a medication titrati
 ## Your Role:
 - Respond as a real patient would during weekly check-ins with your heart failure care team
 - Be honest about your symptoms, medication adherence, and concerns
-- Ask relevant questions that patients typically have
+- Ask 1-2 relevant questions a patient would typically ask per week. DO NOT ask more than 1-2 questions per week. Patients often ask about:
+   - Why medications are being changed
+   - What side effects to watch for
+   - How long treatment will take
+   - Impact on daily activities
 - Show appropriate emotions (worry, relief, frustration) when realistic
-- **CRITICAL: Keep responses SHORT (2-3 sentences max). Real patients don't give lengthy reports.**
+- **CRITICAL: Keep responses SHORT (2-3 sentences MAX). Real patients don't give lengthy reports.**
 
 ## Response Guidelines:
 1. **Be Conversational and BRIEF**: Use natural language, not medical jargon. Answer directly and stop.
 2. **Stay In Character**: Be consistent with your patient profile and behavioral patterns
 3. **Provide Requested Information**: Give vital signs, symptoms, and adherence info when asked - but concisely
-4. **Express Concerns**: Share worries about side effects, medication costs, or lifestyle impacts - but briefly
-5. **Ask Questions** (one at a time): Patients often ask about:
-   - Why medications are being changed
-   - What side effects to watch for
-   - How long treatment will take
-   - Impact on daily activities
 
 ## Information You Can Provide:
 - How you're feeling compared to last week
@@ -219,7 +254,7 @@ You are simulating a heart failure patient participating in a medication titrati
 - Weight changes
 - Medication adherence (missed doses, reasons why)
 - Side effects you're experiencing
-- Questions or concerns about your treatment
+- Questions or concerns about your treatment (limit these)
 
 ## Behavioral Consistency:
 Your responses should align with your assigned patterns for:
@@ -308,12 +343,13 @@ class PatientAgent:
         """Generate realistic weekly data based on patient patterns."""
         profile = self.patient_state.profile
         med_names = [med.name for med in self.patient_state.current_medications]
+        total_weeks = getattr(self.patient_state, "total_weeks", 8)
         
         # Generate components
         vitals = generate_realistic_vitals(profile.vitals_pattern, self.current_week)
-        symptoms = generate_symptoms(profile.symptom_pattern, self.current_week)
-        side_effects = generate_side_effects(profile.side_effect_pattern, med_names, self.current_week)
-        adherence = calculate_adherence(profile.adherence_pattern, self.current_week)
+        symptoms = generate_symptoms(profile.symptom_pattern, self.current_week, total_weeks)
+        side_effects = generate_side_effects(profile.side_effect_pattern, med_names, self.current_week, total_weeks)
+        adherence = calculate_adherence(profile.adherence_pattern, self.current_week, total_weeks)
         
         # Generate weight if needed
         if profile.vitals_pattern == VitalsPattern.WEIGHT_GAIN_FLUID_OVERLOAD:
@@ -338,14 +374,21 @@ class PatientAgent:
     def should_trigger_endpoint(self) -> bool:
         """Check if patient should trigger their target endpoint."""
         target_endpoint = self.patient_state.profile.target_endpoint
+        total_weeks = getattr(self.patient_state, "total_weeks", 8)
         
         # Define trigger conditions for different endpoints
         if target_endpoint == Endpoint.ACUTE_DECOMPENSATION_ED:
-            return self.current_week >= 7  # Trigger after week 7
+            # Trigger in the final quarter of the program
+            trigger_week = max(2, (3 * total_weeks) // 4)
+            return self.current_week >= trigger_week
         elif target_endpoint == Endpoint.NON_ADHERENCE_FAILURE:
-            return self.current_week >= 6 and self.patient_state.profile.adherence_pattern == AdherencePattern.DECLINING
+            # Non-adherence failure if declining pattern and past the middle of the program
+            trigger_week = max(2, total_weeks // 2)
+            return self.current_week >= trigger_week and self.patient_state.profile.adherence_pattern == AdherencePattern.DECLINING
         elif target_endpoint == Endpoint.SIDE_EFFECT_FAILURE:
-            return self.current_week >= 5 and self.patient_state.profile.side_effect_pattern == SideEffectPattern.SIDE_EFFECT_ESCALATION
+            # Side effect failure if escalation pattern and into the latter half
+            trigger_week = max(2, (total_weeks * 3) // 5)
+            return self.current_week >= trigger_week and self.patient_state.profile.side_effect_pattern == SideEffectPattern.SIDE_EFFECT_ESCALATION
         
         return False
 

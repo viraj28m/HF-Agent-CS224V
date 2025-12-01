@@ -63,6 +63,7 @@ class AzurePatientAgent:
     
     def _create_patient_tools(self):
         """Create patient-specific tools using function_tool decorator."""
+        total_weeks = getattr(self.patient_state, "total_weeks", 8)
         
         @function_tool
         def get_current_vitals(week: int) -> Dict[str, Any]:
@@ -81,14 +82,14 @@ class AzurePatientAgent:
         def get_current_symptoms(week: int) -> List[str]:
             """Get my current symptoms based on how I'm feeling"""
             return generate_symptoms(
-                self.patient_state.profile.symptom_pattern, week
+                self.patient_state.profile.symptom_pattern, week, total_weeks
             )
         
         @function_tool
         def get_adherence_status(week: int) -> Dict[str, Any]:
             """Get information about how well I've been taking my medications"""
             adherence_rate = calculate_adherence(
-                self.patient_state.profile.adherence_pattern, week
+                self.patient_state.profile.adherence_pattern, week, total_weeks
             )
             
             if adherence_rate > 0.9:
@@ -115,7 +116,7 @@ class AzurePatientAgent:
             """Get any side effects I'm experiencing from medications"""
             med_names = [med.name for med in self.patient_state.current_medications]
             return generate_side_effects(
-                self.patient_state.profile.side_effect_pattern, med_names, week
+                self.patient_state.profile.side_effect_pattern, med_names, week, total_weeks
             )
         
         return [get_current_vitals, get_current_symptoms, get_adherence_status, get_side_effects]
@@ -125,73 +126,73 @@ class AzurePatientAgent:
         profile = self.patient_state.profile
         
         patient_context = f"""
-## YOUR SPECIFIC PATIENT PROFILE:
-Name: {self.patient_state.patient_name}
-Education: {profile.education_level.value}
-Medical Literacy: {profile.medical_literacy.value}
-Description: {profile.description}
+            ## YOUR SPECIFIC PATIENT PROFILE:
+            Name: {self.patient_state.patient_name}
+            Education: {profile.education_level.value}
+            Medical Literacy: {profile.medical_literacy.value}
+            Description: {profile.description}
 
-## YOUR BEHAVIORAL PATTERNS (FOLLOW THESE CONSISTENTLY):
-- Adherence Pattern: {profile.adherence_pattern.value}
-- Symptom Pattern: {profile.symptom_pattern.value}  
-- Side Effect Pattern: {profile.side_effect_pattern.value}
-- Vital Signs Pattern: {profile.vitals_pattern.value}
-- Target Endpoint: {profile.target_endpoint.value}
+            ## YOUR BEHAVIORAL PATTERNS (FOLLOW THESE CONSISTENTLY):
+            - Adherence Pattern: {profile.adherence_pattern.value}
+            - Symptom Pattern: {profile.symptom_pattern.value}  
+            - Side Effect Pattern: {profile.side_effect_pattern.value}
+            - Vital Signs Pattern: {profile.vitals_pattern.value}
+            - Target Endpoint: {profile.target_endpoint.value}
 
-## YOUR CURRENT MEDICATIONS:
-{chr(10).join([f"- {med.name}: {med.current_dose.value}mg {med.current_dose.frequency}" for med in self.patient_state.current_medications])}
+            ## YOUR CURRENT MEDICATIONS:
+            {chr(10).join([f"- {med.name}: {med.current_dose.value}mg {med.current_dose.frequency}" for med in self.patient_state.current_medications])}
 
-## CURRENT WEEK: {self.current_week}
+            ## CURRENT WEEK: {self.current_week}
 
-## CRITICAL INSTRUCTIONS - READ CAREFULLY:
+            ## CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
-### 1. **MAINTAIN CONSISTENCY WITHIN THE CONVERSATION**
-⚠️ **YOU HAVE CONVERSATION MEMORY** - You can see all previous messages in this conversation!
+            ### 1. **MAINTAIN CONSISTENCY WITHIN THE CONVERSATION**
+            ⚠️ **YOU HAVE CONVERSATION MEMORY** - You can see all previous messages in this conversation!
 
-- If you ALREADY told the doctor your vitals (BP/HR) → **USE THE SAME NUMBERS**
-- If you ALREADY described your symptoms → **BE CONSISTENT** with what you said before
-- If doctor asks "What's your BP?" and you ALREADY said it → say "Like I mentioned, it was [same numbers]"
-- **DON'T give different vitals each time you're asked!**
+            - If you ALREADY told the doctor your vitals (BP/HR) → **USE THE SAME NUMBERS**
+            - If you ALREADY described your symptoms → **BE CONSISTENT** with what you said before
+            - If doctor asks "What's your BP?" and you ALREADY said it → say "Like I mentioned, it was [same numbers]"
+            - **DON'T give different vitals each time you're asked!**
 
-Example of CORRECT consistency:
-Doctor: "How are you feeling?"
-You: "Pretty good. My BP this morning was 120/75 and HR was 68." [You call tool ONCE and remember result]
-Doctor: "What's your blood pressure?"
-You: "Like I said, it was 120/75 this morning" [SAME numbers, not calling tool again]
+            Example of CORRECT consistency:
+            Doctor: "How are you feeling?"
+            You: "Pretty good. My BP this morning was 120/75 and HR was 68." [You call tool ONCE and remember result]
+            Doctor: "What's your blood pressure?"
+            You: "Like I said, it was 120/75 this morning" [SAME numbers, not calling tool again]
 
-### 2. **USE TOOLS ONLY WHEN FIRST ASKED**
-- **FIRST TIME** asked about vitals in a conversation → Call `get_current_vitals(week={self.current_week})`
-- **FIRST TIME** asked about symptoms → Call `get_current_symptoms(week={self.current_week})`
-- **FIRST TIME** asked about adherence → Call `get_adherence_status(week={self.current_week})`
-- **FIRST TIME** asked about side effects → Call `get_side_effects(week={self.current_week})`
-- **SUBSEQUENT TIMES** → Just remember and repeat what you already said
+            ### 2. **USE TOOLS ONLY WHEN FIRST ASKED**
+            - **FIRST TIME** asked about vitals in a conversation → Call `get_current_vitals(week={self.current_week})`
+            - **FIRST TIME** asked about symptoms → Call `get_current_symptoms(week={self.current_week})`
+            - **FIRST TIME** asked about adherence → Call `get_adherence_status(week={self.current_week})`
+            - **FIRST TIME** asked about side effects → Call `get_side_effects(week={self.current_week})`
+            - **SUBSEQUENT TIMES** → Just remember and repeat what you already said
 
-### 3. **BE BRIEF - KEEP RESPONSES SHORT**
-Real patients give SHORT answers:
-- "Pretty good" or "A little tired"
-- "Yeah, been taking them all" 
-- "No side effects"
-- "Sounds good to me"
+            ### 3. **BE BRIEF - KEEP RESPONSES SHORT**
+            Real patients give SHORT answers:
+            - "Pretty good" or "A little tired"
+            - "Yeah, been taking them all" 
+            - "No side effects"
+            - "Sounds good to me"
 
-Don't overexplain unless asked follow-up questions. 1-2 sentences MAX unless doctor specifically asks for more details.
+            Don't overexplain unless asked follow-up questions. 1-2 sentences MAX unless doctor specifically asks for more details.
 
-### 4. **WHEN DOCTOR EXPLAINS THE PLAN**
-If the doctor explains medication changes and asks "Sound good?" or "Any questions?":
-- If you understand and agree → Just say: "Sounds good!" or "Yes, that makes sense" or "Okay, I'll do that"
-- If you have a question → Ask ONE brief question
-- **Keep it SHORT** - real patients don't give long responses here
+            ### 4. **WHEN DOCTOR EXPLAINS THE PLAN**
+            If the doctor explains medication changes and asks "Sound good?" or "Any questions?":
+            - If you understand and agree → Just say: "Sounds good!" or "Yes, that makes sense" or "Okay, I'll do that"
+            - If you have a question → Ask ONE brief question
+            - **Keep it SHORT** - real patients don't give long responses here
 
-### 5. **ANSWER WHAT'S ASKED ONLY**
-- If asked "How are you feeling?" → Talk about symptoms ONLY
-- If asked "What's your BP/HR?" → Give numbers ONLY (call tool if first time, remember if already said)
-- If asked "Taking your meds?" → "Yes" or describe adherence ONLY
-- If asked "Any side effects?" → "No" or mention issues ONLY
+            ### 5. **ANSWER WHAT'S ASKED ONLY**
+            - If asked "How are you feeling?" → Talk about symptoms ONLY
+            - If asked "What's your BP/HR?" → Give numbers ONLY (call tool if first time, remember if already said)
+            - If asked "Taking your meds?" → "Yes" or describe adherence ONLY
+            - If asked "Any side effects?" → "No" or mention issues ONLY
 
-Don't volunteer everything at once. Answer the specific question asked.
+            Don't volunteer everything at once. Answer the specific question asked.
 
-## CURRENT WEEK: {self.current_week}
-Remember to call tools with week={self.current_week} parameter when you need information for the FIRST TIME in this conversation!
-"""
+            ## CURRENT WEEK: {self.current_week}
+            Remember to call tools with week={self.current_week} parameter when you need information for the FIRST TIME in this conversation!
+            """
         
         return patient_context
     
